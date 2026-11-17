@@ -1,0 +1,219 @@
+---
+title: "Project 2"
+author: "Aden Beatty"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(knitr)
+```
+
+# Load and Process Data
+
+```{r function}
+# --------------------------------------------------
+# Function: process_air_quality()
+#
+# Purpose:
+#   Read and clean one year of EPA air quality data.
+#
+# Arguments:
+#   file_path = path to csv file
+#   ozone_unit = desired ozone units ("ppm" or "ppb")
+#
+# Returns:
+#   A cleaned tibble with one row per day
+# --------------------------------------------------
+
+process_air_quality <- function(file_path, ozone_unit = "ppm") {
+
+  # Read csv file
+  dat <- read_csv(file_path, show_col_types = FALSE)
+
+  # Rename pollutant variables
+  dat <- dat %>%
+    rename(
+      co = `Daily Max 8-hour CO Concentration`,
+      pm25 = `Daily Mean PM2.5 Concentration`,
+      ozone = `Daily Max 8-hour Ozone Concentration`
+    )
+
+  # Convert Date to Date format
+  dat <- dat %>%
+    mutate(Date = mdy(Date))
+
+  # Replace negative pollutant values with 0
+  pollutants <- c("co", "pm25", "ozone")
+
+  for(var in pollutants){
+    dat[[var]][dat[[var]] < 0] <- 0
+  }
+
+  # Average multiple measurements within a day
+  dat <- dat %>%
+    group_by(Date) %>%
+    summarize(
+      co = mean(co, na.rm = TRUE),
+      pm25 = mean(pm25, na.rm = TRUE),
+      ozone = mean(ozone, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # Convert ozone to ppb if requested
+  if(ozone_unit == "ppb"){
+    dat <- dat %>%
+      mutate(ozone = ozone * 1000)
+  }
+
+  # Remove duplicate rows
+  dat <- distinct(dat)
+
+  return(dat)
+}
+```
+
+# Process Each Year
+
+```{r process-years}
+aq18 <- process_air_quality("AQ_2018.csv")
+aq19 <- process_air_quality("AQ_2019.csv")
+aq20 <- process_air_quality("AQ_2020.csv")
+
+air_quality <- bind_rows(aq18, aq19, aq20)
+
+air_quality <- air_quality %>%
+  mutate(
+    year = year(Date),
+    month = month(Date, label = TRUE, abbr = TRUE)
+  )
+
+head(air_quality)
+```
+
+# Tables
+
+## 2018
+
+```{r table-2018}
+table_2018 <- aq18 %>%
+  summarise(
+    CO_Min = min(co, na.rm = TRUE),
+    CO_Max = max(co, na.rm = TRUE),
+    PM25_Min = min(pm25, na.rm = TRUE),
+    PM25_Max = max(pm25, na.rm = TRUE),
+    Ozone_Min = min(ozone, na.rm = TRUE),
+    Ozone_Max = max(ozone, na.rm = TRUE)
+  )
+
+kable(round(table_2018, 3),
+      caption = "2018 Daily Minimum and Maximum Pollutant Concentrations")
+```
+
+## 2019
+
+```{r table-2019}
+table_2019 <- aq19 %>%
+  summarise(
+    CO_Min = min(co, na.rm = TRUE),
+    CO_Max = max(co, na.rm = TRUE),
+    PM25_Min = min(pm25, na.rm = TRUE),
+    PM25_Max = max(pm25, na.rm = TRUE),
+    Ozone_Min = min(ozone, na.rm = TRUE),
+    Ozone_Max = max(ozone, na.rm = TRUE)
+  )
+
+kable(round(table_2019, 3),
+      caption = "2019 Daily Minimum and Maximum Pollutant Concentrations")
+```
+
+## 2020
+
+```{r table-2020}
+table_2020 <- aq20 %>%
+  summarise(
+    CO_Min = min(co, na.rm = TRUE),
+    CO_Max = max(co, na.rm = TRUE),
+    PM25_Min = min(pm25, na.rm = TRUE),
+    PM25_Max = max(pm25, na.rm = TRUE),
+    Ozone_Min = min(ozone, na.rm = TRUE),
+    Ozone_Max = max(ozone, na.rm = TRUE)
+  )
+
+kable(round(table_2020, 3),
+      caption = "2020 Daily Minimum and Maximum Pollutant Concentrations")
+```
+
+# Plot 1: CO and Ozone by Month
+
+```{r plot1}
+monthly_summary <- air_quality %>%
+  pivot_longer(
+    cols = c(co, ozone),
+    names_to = "pollutant",
+    values_to = "value"
+  ) %>%
+  group_by(month, pollutant) %>%
+  summarise(
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    n = sum(!is.na(value)),
+    se = sd / sqrt(n),
+    lower = mean - 1.96 * se,
+    upper = mean + 1.96 * se,
+    .groups = "drop"
+  )
+
+ggplot(monthly_summary,
+       aes(x = month,
+           y = mean,
+           color = pollutant,
+           group = pollutant)) +
+  geom_point(size = 3) +
+  geom_line() +
+  geom_errorbar(aes(ymin = lower, ymax = upper),
+                width = 0.2) +
+  labs(
+    title = "Monthly Average CO and Ozone Concentrations",
+    x = "Month",
+    y = "Concentration"
+  ) +
+  theme_minimal()
+```
+
+**Plot 1 Justification:** Ozone and CO are displayed together to compare seasonal trends, while confidence intervals show uncertainty in the monthly averages.
+
+# Plot 2: PM2.5 by Month and Year
+
+```{r plot2}
+ggplot(air_quality,
+       aes(x = month,
+           y = pm25,
+           color = factor(year),
+           group = year)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1) +
+  stat_summary(fun = mean, geom = "point", size = 2) +
+  labs(
+    title = "Average PM2.5 Concentration by Month and Year",
+    x = "Month",
+    y = "PM2.5 Concentration",
+    color = "Year"
+  ) +
+  theme_minimal()
+```
+
+**Plot 2 Justification:** A line plot makes it easy to compare month-to-month PM2.5 trends across years.
+
+# Interpretation
+
+- CO and ozone appear to show seasonal variation across the year.
+- PM2.5 concentrations vary across months and years.
+- Results for May-December should be interpreted carefully because 2020 data are only available through April.
+
+# AI Use Statement
+
+I used Microsoft Copilot to help generate and organize R code for data cleaning, table creation, and plotting. I reviewed and tested all code and verified that it matched the project instructions before using it.
